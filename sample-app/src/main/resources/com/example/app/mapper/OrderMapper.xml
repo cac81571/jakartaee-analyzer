@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.app.mapper.OrderMapper">
+
+  <resultMap id="orderMap" type="com.example.app.entity.Order">
+    <id property="id" column="id"/>
+    <result property="orderNo" column="order_no"/>
+    <result property="customerName" column="customer_name"/>
+  </resultMap>
+
+  <sql id="baseSelect">
+    SELECT o.id, o.order_no, o.customer_id, c.name AS customer_name,
+           o.order_date, o.status, o.total_amount
+      FROM orders o
+      INNER JOIN customer c ON c.id = o.customer_id
+  </sql>
+
+  <select id="selectByCondition" parameterType="com.example.app.entity.OrderSearchCondition" resultMap="orderMap">
+    <include refid="baseSelect"/>
+    <where>
+      <if test="orderNo != null and orderNo != ''">AND o.order_no = #{orderNo}</if>
+      <if test="customerName != null and customerName != ''">AND c.name LIKE CONCAT(#{customerName}, '%')</if>
+      <if test="fromDate != null">AND o.order_date &gt;= #{fromDate}</if>
+      <if test="toDate != null">AND o.order_date &lt;= #{toDate}</if>
+      <choose>
+        <when test="status != null">AND o.status = #{status}</when>
+        <otherwise>AND o.status &lt;&gt; 'DELETED'</otherwise>
+      </choose>
+    </where>
+    ORDER BY o.order_date DESC
+  </select>
+
+  <select id="selectAll" resultMap="orderMap">
+    <include refid="baseSelect"/>
+    ORDER BY o.id
+  </select>
+
+  <select id="selectById" resultMap="orderMap">
+    <include refid="baseSelect"/>
+    WHERE o.id = #{id}
+  </select>
+
+  <update id="updateStatus">
+    UPDATE orders SET status = #{status}, updated_at = CURRENT_TIMESTAMP WHERE id = #{id}
+  </update>
+
+  <!-- インターフェースにメソッドが存在しないステートメント（未使用として検出されるべき） -->
+  <delete id="purgeDeleted">
+    DELETE FROM orders WHERE status = 'DELETED'
+  </delete>
+</mapper>

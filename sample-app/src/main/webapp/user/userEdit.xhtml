@@ -1,0 +1,24 @@
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+                xmlns:h="jakarta.faces.html"
+                xmlns:f="jakarta.faces.core"
+                xmlns:ui="jakarta.faces.facelets"
+                template="/WEB-INF/templates/layout.xhtml">
+  <ui:define name="title">ユーザー編集</ui:define>
+  <ui:define name="content">
+    <f:metadata>
+      <f:viewParam name="id" value="#{userEdit.id}"/>
+      <f:viewAction action="#{userEdit.init}"/>
+    </f:metadata>
+    <h:form id="editForm">
+      <h:inputText id="name" value="#{userEdit.user.name}" required="true"/>
+      <h:inputText id="email" value="#{userEdit.user.email}"/>
+      <h:selectOneMenu id="dept" value="#{userEdit.user.departmentId}">
+        <f:selectItems value="#{userEdit.departments}" var="d" itemValue="#{d.id}" itemLabel="#{d.name}"/>
+      </h:selectOneMenu>
+      <h:commandButton value="保存" action="#{userEdit.save}"/>
+      <!-- 存在しないメソッドへの参照（未解決として検出されるべき） -->
+      <h:commandButton value="キャンセル" action="#{userEdit.cancelEdit}" immediate="true"/>
+      <h:outputText value="最終更新: #{facesContext.viewRoot.viewId}"/>
+    </h:form>
+  </ui:define>
+</ui:composition>

@@ -1,0 +1,5 @@
+﻿"種別","場所","対象","内容"
+"EL: Bean未定義","src/main/webapp/order/orderList.xhtml:22","#{orderSummaryBean.totalCount}","Bean 'orderSummaryBean' が見つかりません（@Named 未定義）"
+"EL: メソッド未定義","src/main/webapp/user/userEdit.xhtml:20","#{userEdit.cancelEdit}","UserEditBean にメソッド 'cancelEdit' がありません"
+"Mapper: SQL未定義","src/main/java/com/example/app/mapper/InventoryMapper.java:9","InventoryMapper#restock","Mapper XML（namespace=com.example.app.mapper.InventoryMapper）にもアノテーションにも SQL がありません"
+"Mapper XML: インターフェースにメソッドなし","src/main/resources/com/example/app/mapper/OrderMapper.xml:48","OrderMapper#purgeDeleted","XML のステートメント id に対応するメソッドがインターフェースにありません"

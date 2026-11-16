@@ -1,0 +1,21 @@
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+                xmlns:h="jakarta.faces.html"
+                xmlns:f="jakarta.faces.core"
+                xmlns:ui="jakarta.faces.facelets"
+                template="/WEB-INF/templates/layout.xhtml">
+  <ui:define name="title">受注詳細</ui:define>
+  <ui:define name="content">
+    <f:metadata>
+      <f:viewParam name="orderId" value="#{orderDetailBean.orderId}"/>
+      <f:event type="preRenderView" listener="#{orderDetailBean.load}"/>
+    </f:metadata>
+    <h:form id="detailForm">
+      <h:outputText value="#{orderDetailBean.order.orderNo}"/>
+      <ui:repeat value="#{orderDetailBean.order.items}" var="item">
+        <div>#{item.productName} x #{item.quantity}</div>
+      </ui:repeat>
+      <h:commandButton value="キャンセル" action="#{orderDetailBean.cancel}"
+                       rendered="#{orderDetailBean.order.status ne 'CANCELLED'}"/>
+    </h:form>
+  </ui:define>
+</ui:composition>

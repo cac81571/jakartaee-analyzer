@@ -1,0 +1,6 @@
+﻿"画面","audit_log","customer","department","order_item","orders","product","users"
+"/login.xhtml","","","","","","","R"
+"/order/orderDetail.xhtml","C","R","","R","RU","R",""
+"/order/orderList.xhtml","","R","","R","R","",""
+"/user/userEdit.xhtml","C","","R","","","","CRU"
+"/user/userList.xhtml","","","R","","","","RD"

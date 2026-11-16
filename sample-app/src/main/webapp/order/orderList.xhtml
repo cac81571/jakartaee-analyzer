@@ -1,0 +1,25 @@
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+                xmlns:h="jakarta.faces.html"
+                xmlns:f="jakarta.faces.core"
+                xmlns:ui="jakarta.faces.facelets"
+                template="/WEB-INF/templates/layout.xhtml">
+  <ui:define name="title">受注一覧</ui:define>
+  <ui:define name="content">
+    <h:form id="orderSearch">
+      <h:inputText value="#{orderListBean.condition.orderNo}"/>
+      <h:inputText value="#{orderListBean.condition.customerName}"/>
+      <h:commandButton value="検索" action="#{orderListBean.search()}"/>
+      <h:commandButton value="CSV出力" actionListener="#{orderListBean.export}"/>
+      <h:dataTable value="#{orderListBean.orders}" var="o">
+        <h:column>
+          <h:link outcome="/order/orderDetail" value="#{o.orderNo}">
+            <f:param name="orderId" value="#{o.id}"/>
+          </h:link>
+        </h:column>
+        <h:column>#{o.customerName}</h:column>
+      </h:dataTable>
+      <!-- 存在しない Bean への参照（未解決として検出されるべき） -->
+      <h:outputText value="#{orderSummaryBean.totalCount}"/>
+    </h:form>
+  </ui:define>
+</ui:composition>
