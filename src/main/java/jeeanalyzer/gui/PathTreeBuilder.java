@@ -21,66 +21,49 @@ final class PathTreeBuilder {
         return root;
     }
 
-    /** XHTML → テーブル（CRUD 文字付き、中間層なし） */
+    /** XHTML → ボタン → SQL（テーブル名） */
     static DefaultMutableTreeNode buildXhtmlToTable(List<PathRowView> rows) {
         DefaultMutableTreeNode root = new DefaultMutableTreeNode(PathTreeNode.root("XHTMLとテーブル"));
         Map<String, DefaultMutableTreeNode> projects = new LinkedHashMap<>();
-        // xhtml → table → letters
-        Map<String, Map<String, LinkedHashSet<String>>> agg = new LinkedHashMap<>();
-        Map<String, PathRowView> sample = new LinkedHashMap<>();
         for (PathRowView v : rows) {
-            String letter = crudLetter(v.sql());
-            if (v.table().isBlank() || letter == null) continue;
-            String xkey = v.project.toAbsolutePath().normalize() + "\0" + display(v.xhtml(), "(xhtml)");
-            sample.putIfAbsent(xkey, v);
-            Map<String, LinkedHashSet<String>> tables = agg.computeIfAbsent(xkey, k -> new LinkedHashMap<>());
-            for (String t : v.table().split(",\\s*")) {
-                if (t.isBlank()) continue;
-                tables.computeIfAbsent(t, k -> new LinkedHashSet<>()).add(letter);
-            }
-        }
-        for (Map.Entry<String, Map<String, LinkedHashSet<String>>> e : agg.entrySet()) {
-            PathRowView v = sample.get(e.getKey());
+            String sqlLabel = sqlNodeLabel(v);
+            if (sqlLabel.isBlank()) continue;
             String projKey = v.project.toAbsolutePath().normalize().toString();
             DefaultMutableTreeNode proj = projects.computeIfAbsent(projKey, k ->
                     child(root, PathTreeNode.Kind.GROUP, v.projectName, null, null, -1));
             DefaultMutableTreeNode xhtml = findOrCreate(proj, PathTreeNode.Kind.XHTML, display(v.xhtml(), "(xhtml)"), v, "xhtml", -1);
-            for (Map.Entry<String, LinkedHashSet<String>> te : e.getValue().entrySet()) {
-                String letters = sortedCrudLetters(te.getValue());
-                String label = te.getKey() + "  " + letters;
-                findOrCreate(xhtml, PathTreeNode.Kind.TABLE, label, v, "sql", -1);
-            }
+            DefaultMutableTreeNode button = findOrCreate(xhtml, PathTreeNode.Kind.BUTTON, buttonLabel(v), v, "xhtml", -1);
+            findOrCreate(button, PathTreeNode.Kind.SQL, sqlLabel, v, "sql", -1);
         }
         pruneEmptyGroups(root);
         return root;
     }
 
-    /** テーブル → CRUD → XHTML（中間層なし） */
+    /** テーブル → SQL（テーブル名） → XHTML　ボタン名 */
     static DefaultMutableTreeNode buildTableToXhtml(List<PathRowView> rows) {
         DefaultMutableTreeNode root = new DefaultMutableTreeNode(PathTreeNode.root("テーブルとXHTML"));
         Map<String, DefaultMutableTreeNode> tableNodes = new LinkedHashMap<>();
         for (PathRowView v : rows) {
             String tableCsv = v.table();
-            String crud = crudLabel(v.sql());
-            if (tableCsv.isBlank() || crud == null) continue;
+            String sqlLabel = sqlNodeLabel(v);
+            if (tableCsv.isBlank() || sqlLabel.isBlank()) continue;
+            String leaf = display(v.xhtml(), "(xhtml)") + "　" + buttonLabel(v);
             for (String t : tableCsv.split(",\\s*")) {
                 if (t.isBlank()) continue;
                 DefaultMutableTreeNode tableNode = tableNodes.computeIfAbsent(t, name ->
                         child(root, PathTreeNode.Kind.TABLE, name, v, "sql", -1));
-                DefaultMutableTreeNode crudNode = findOrCreate(tableNode, PathTreeNode.Kind.CRUD, crud, null, null, -1);
-                findOrCreate(crudNode, PathTreeNode.Kind.XHTML, display(v.xhtml(), "(xhtml)"), v, "xhtml", -1);
+                DefaultMutableTreeNode sqlNode = findOrCreate(tableNode, PathTreeNode.Kind.SQL, sqlLabel, v, "sql", -1);
+                findOrCreate(sqlNode, PathTreeNode.Kind.BUTTON, leaf, v, "xhtml", -1);
             }
         }
-        for (DefaultMutableTreeNode table : tableNodes.values()) sortCrudChildren(table);
         sortChildrenByLabel(root);
+        for (DefaultMutableTreeNode table : tableNodes.values()) {
+            sortChildrenByLabel(table);
+            for (int i = 0; i < table.getChildCount(); i++) {
+                sortChildrenByLabel((DefaultMutableTreeNode) table.getChildAt(i));
+            }
+        }
         return root;
-    }
-
-    private static String sortedCrudLetters(Set<String> letters) {
-        StringBuilder sb = new StringBuilder();
-        for (String c : List.of("C", "R", "U", "D")) if (letters.contains(c)) sb.append(c);
-        for (String c : letters) if (sb.indexOf(c) < 0) sb.append(c);
-        return sb.toString();
     }
 
     static DefaultMutableTreeNode buildFromTable(List<PathRowView> rows) {
@@ -207,45 +190,6 @@ final class PathTreeBuilder {
 
     private static String display(String s, String fallback) {
         return s == null || s.isBlank() ? fallback : s;
-    }
-
-    static String crudLetter(String stmtType) {
-        if (stmtType == null) return null;
-        return switch (stmtType.trim().toLowerCase(Locale.ROOT)) {
-            case "insert" -> "C";
-            case "select" -> "R";
-            case "update" -> "U";
-            case "delete" -> "D";
-            default -> null;
-        };
-    }
-
-    static String crudLabel(String stmtType) {
-        if (stmtType == null) return null;
-        return switch (stmtType.trim().toLowerCase(Locale.ROOT)) {
-            case "insert" -> "Create";
-            case "select" -> "Read";
-            case "update" -> "Update";
-            case "delete" -> "Delete";
-            default -> null;
-        };
-    }
-
-    private static final List<String> CRUD_ORDER = List.of("Create", "Read", "Update", "Delete");
-
-    private static void sortCrudChildren(DefaultMutableTreeNode table) {
-        List<DefaultMutableTreeNode> children = new ArrayList<>();
-        for (int i = 0; i < table.getChildCount(); i++) children.add((DefaultMutableTreeNode) table.getChildAt(i));
-        children.sort(Comparator.comparingInt(n -> {
-            Object u = n.getUserObject();
-            if (u instanceof PathTreeNode p) {
-                int idx = CRUD_ORDER.indexOf(p.label);
-                return idx < 0 ? 99 : idx;
-            }
-            return 99;
-        }));
-        table.removeAllChildren();
-        for (DefaultMutableTreeNode c : children) table.add(c);
     }
 
     private static void sortChildrenByLabel(DefaultMutableTreeNode parent) {

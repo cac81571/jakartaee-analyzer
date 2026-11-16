@@ -11,6 +11,11 @@ public final class Util {
     private Util() {}
 
     static Charset preferred = StandardCharsets.UTF_8;
+    /**
+     * マルチルート解析時の追加検索ルート（主ルート以外）。
+     * {@link #rel(Path, Path)} が主ルート外のファイルを相対化するために参照する。
+     */
+    static List<Path> searchRoots = List.of();
     private static final Set<String> SKIP_DIRS = Set.of("target", "build", ".git", ".svn", "node_modules", ".idea", ".gradle", "bin");
 
     /** 指定拡張子のファイルを列挙（target 等は除外） */
@@ -63,6 +68,17 @@ public final class Util {
     }
 
     static String rel(Path root, Path p) {
-        return root.relativize(p).toString().replace('\\', '/');
+        Path abs = p.toAbsolutePath().normalize();
+        List<Path> tryRoots = new ArrayList<>();
+        if (root != null) tryRoots.add(root.toAbsolutePath().normalize());
+        for (Path r : searchRoots) {
+            if (r == null) continue;
+            Path n = r.toAbsolutePath().normalize();
+            if (!tryRoots.contains(n)) tryRoots.add(n);
+        }
+        for (Path r : tryRoots) {
+            if (abs.startsWith(r)) return r.relativize(abs).toString().replace('\\', '/');
+        }
+        return abs.toString().replace('\\', '/');
     }
 }

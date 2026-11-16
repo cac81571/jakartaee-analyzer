@@ -17,15 +17,17 @@ final class ProjectStore {
         settingsFile = dir.resolve("settings.properties");
     }
 
-    List<Path> load() {
+    List<RegisteredProject> load() {
         if (!Files.isRegularFile(projectsFile)) return new ArrayList<>();
         try {
-            List<Path> out = new ArrayList<>();
+            List<RegisteredProject> out = new ArrayList<>();
+            Set<Path> seenPrimary = new HashSet<>();
             for (String line : Files.readAllLines(projectsFile, StandardCharsets.UTF_8)) {
                 String t = line.trim();
                 if (t.isEmpty() || t.startsWith("#")) continue;
-                Path p = Paths.get(t).toAbsolutePath().normalize();
-                if (Files.isDirectory(p) && !out.contains(p)) out.add(p);
+                RegisteredProject rp = RegisteredProject.parseStoreLine(t);
+                if (rp == null || !seenPrimary.add(rp.primary)) continue;
+                out.add(rp);
             }
             return out;
         } catch (IOException e) {
@@ -33,11 +35,11 @@ final class ProjectStore {
         }
     }
 
-    void save(List<Path> projects) {
+    void save(List<RegisteredProject> projects) {
         try {
             Files.createDirectories(dir);
             StringBuilder sb = new StringBuilder();
-            for (Path p : projects) sb.append(p.toAbsolutePath().normalize()).append('\n');
+            for (RegisteredProject p : projects) sb.append(p.toStoreLine()).append('\n');
             Files.writeString(projectsFile, sb.toString(), StandardCharsets.UTF_8);
         } catch (IOException ignore) { }
     }

@@ -18,8 +18,8 @@ import jeeanalyzer.Model.PathRow;
 /** メインウィンドウ: プロジェクト登録 / xhtml 選択 / 解析結果 / ソース表示 */
 final class AnalyzerFrame extends JFrame {
     private final ProjectStore store = new ProjectStore();
-    private final DefaultListModel<Path> projectModel = new DefaultListModel<>();
-    private final JList<Path> projectList = new JList<>(projectModel);
+    private final DefaultListModel<RegisteredProject> projectModel = new DefaultListModel<>();
+    private final JList<RegisteredProject> projectList = new JList<>(projectModel);
     private final DefaultListModel<XhtmlItem> xhtmlModel = new DefaultListModel<>();
     private final JList<XhtmlItem> xhtmlList = new JList<>(xhtmlModel);
     private final PathsTableModel pathsModel = new PathsTableModel();
@@ -37,7 +37,7 @@ final class AnalyzerFrame extends JFrame {
     private final JCheckBox allXhtml = new JCheckBox("全画面を解析", true);
     private final JCheckBox mergeResults = new JCheckBox("既存結果とマージ", true);
     private final JTextField outField = new JTextField();
-    private final JToggleButton toggleLeftBtn = new JToggleButton("プロジェクトパネル", true);
+    private final JToggleButton toggleLeftBtn = new JToggleButton("プロジェクトパネル非表示", true);
 
     private JComponent leftPanel;
     private JSplitPane outerSplit;
@@ -52,7 +52,7 @@ final class AnalyzerFrame extends JFrame {
         setSize(1440, 820);
         setLocationRelativeTo(null);
 
-        for (Path p : store.load()) projectModel.addElement(p);
+        for (RegisteredProject p : store.load()) projectModel.addElement(p);
 
         projectList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         projectList.setCellRenderer(new DefaultListCellRenderer() {
@@ -60,9 +60,9 @@ final class AnalyzerFrame extends JFrame {
             public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                           boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof Path path) {
-                    setText(path.getFileName() + "  —  " + path);
-                    setToolTipText(path.toString());
+                if (value instanceof RegisteredProject rp) {
+                    setText(rp.displayName() + "  —  " + rp.primary);
+                    setToolTipText(rp.tooltip());
                 }
                 return this;
             }
@@ -120,15 +120,14 @@ final class AnalyzerFrame extends JFrame {
     /** 前回出力の paths.csv を読み込み、起動直後にツリー表示 */
     private void loadExistingResults() {
         Path out = Path.of(outField.getText().trim()).toAbsolutePath().normalize();
-        List<Path> projects = new ArrayList<>();
-        for (int i = 0; i < projectModel.size(); i++) projects.add(projectModel.get(i));
+        List<RegisteredProject> projects = allProjects();
 
         List<PathRowView> views = new ArrayList<>();
         Set<Path> loadedCsv = new HashSet<>();
 
         // 複数プロジェクト実行時: out/<projectName>/paths.csv
-        for (Path project : projects) {
-            Path csv = out.resolve(safeName(project)).resolve("paths.csv");
+        for (RegisteredProject project : projects) {
+            Path csv = out.resolve(safeName(project.primary)).resolve("paths.csv");
             if (Files.isRegularFile(csv)) {
                 views.addAll(readViews(project, csv));
                 loadedCsv.add(csv.toAbsolutePath().normalize());
@@ -138,19 +137,19 @@ final class AnalyzerFrame extends JFrame {
         // 単一出力: out/paths.csv
         Path rootCsv = out.resolve("paths.csv");
         if (Files.isRegularFile(rootCsv) && loadedCsv.add(rootCsv.toAbsolutePath().normalize())) {
-            Path project = resolveProjectForCsv(projects, rootCsv);
+            RegisteredProject project = resolveProjectForCsv(projects, rootCsv);
             if (project != null) views.addAll(readViews(project, rootCsv));
         }
 
         // フォールバック: 登録プロジェクト直下や sample-output
         if (views.isEmpty()) {
-            for (Path project : projects) {
+            for (RegisteredProject project : projects) {
                 for (Path cand : List.of(
-                        project.resolve("analysis-output").resolve("paths.csv"),
+                        project.primary.resolve("analysis-output").resolve("paths.csv"),
                         Path.of("sample-output").toAbsolutePath().normalize().resolve("paths.csv"),
                         Path.of("analysis-output").toAbsolutePath().normalize().resolve("paths.csv"))) {
                     if (!Files.isRegularFile(cand) || !loadedCsv.add(cand.toAbsolutePath().normalize())) continue;
-                    Path proj = resolveProjectForCsv(projects, cand);
+                    RegisteredProject proj = resolveProjectForCsv(projects, cand);
                     if (proj == null) proj = project;
                     views.addAll(readViews(proj, cand));
                     outField.setText(cand.getParent().toString());
@@ -170,7 +169,7 @@ final class AnalyzerFrame extends JFrame {
         status.setText("前回結果を読込: " + views.size() + " パス / " + outField.getText());
     }
 
-    private List<PathRowView> readViews(Path project, Path csv) {
+    private List<PathRowView> readViews(RegisteredProject project, Path csv) {
         try {
             List<PathRowView> list = new ArrayList<>();
             for (PathRow row : PathCsv.read(csv)) list.add(new PathRowView(project, row));
@@ -181,10 +180,8 @@ final class AnalyzerFrame extends JFrame {
     }
 
     /** definedIn のパス断片からプロジェクトを推定。だめなら先頭プロジェクト */
-    private Path resolveProjectForCsv(List<Path> projects, Path csv) {
+    private RegisteredProject resolveProjectForCsv(List<RegisteredProject> projects, Path csv) {
         if (projects.isEmpty()) {
-            // プロジェクト未登録でも表示できるよう、CSV 親の親などを仮プロジェクトにしない
-            // definedIn が sample-app/... なら cwd 相対で探す
             try {
                 List<PathRow> rows = PathCsv.read(csv);
                 for (PathRow r : rows) {
@@ -193,17 +190,17 @@ final class AnalyzerFrame extends JFrame {
                     int slash = def.indexOf('/');
                     if (slash > 0) {
                         Path guess = Path.of(def.substring(0, slash)).toAbsolutePath().normalize();
-                        if (Files.isDirectory(guess)) return guess;
+                        if (Files.isDirectory(guess)) return new RegisteredProject(guess);
                     }
                 }
             } catch (Exception ignore) { }
-            return Path.of(".").toAbsolutePath().normalize();
+            return new RegisteredProject(Path.of(".").toAbsolutePath().normalize());
         }
         if (projects.size() == 1) return projects.get(0);
         try {
             List<PathRow> rows = PathCsv.read(csv);
-            for (Path project : projects) {
-                String name = project.getFileName() != null ? project.getFileName().toString() : "";
+            for (RegisteredProject project : projects) {
+                String name = project.primary.getFileName() != null ? project.primary.getFileName().toString() : "";
                 for (PathRow r : rows) {
                     String def = r.definedIn == null ? "" : r.definedIn.replace('\\', '/');
                     if (def.contains("/" + name + "/") || def.startsWith(name + "/")) return project;
@@ -211,6 +208,12 @@ final class AnalyzerFrame extends JFrame {
             }
         } catch (Exception ignore) { }
         return projects.get(0);
+    }
+
+    private List<RegisteredProject> allProjects() {
+        List<RegisteredProject> all = new ArrayList<>();
+        for (int i = 0; i < projectModel.size(); i++) all.add(projectModel.get(i));
+        return all;
     }
 
     private JPanel buildUi() {
@@ -261,7 +264,7 @@ final class AnalyzerFrame extends JFrame {
                 if (savedLeftDivider > 0) outerSplit.setDividerLocation(savedLeftDivider);
                 else applyPanelRatio();
             });
-            toggleLeftBtn.setText("プロジェクトパネル");
+            toggleLeftBtn.setText("プロジェクトパネル非表示");
         } else {
             savedLeftDivider = outerSplit.getDividerLocation();
             JPanel empty = new JPanel();
@@ -285,10 +288,15 @@ final class AnalyzerFrame extends JFrame {
         projects.add(new JScrollPane(projectList), BorderLayout.CENTER);
         JPanel projBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         JButton add = new JButton("追加…");
+        JButton addExtra = new JButton("関連フォルダ…");
         JButton remove = new JButton("削除");
+        add.setToolTipText("主フォルダ（XHTML / Bean など）を登録");
+        addExtra.setToolTipText("選択中プロジェクトに DAO / SQL など別フォルダを追加");
         add.addActionListener(e -> addProject());
+        addExtra.addActionListener(e -> addRelatedFolder());
         remove.addActionListener(e -> removeProjects());
         projBtns.add(add);
+        projBtns.add(addExtra);
         projBtns.add(remove);
         projects.add(projBtns, BorderLayout.SOUTH);
 
@@ -392,20 +400,20 @@ final class AnalyzerFrame extends JFrame {
         PathRowView v = node.view;
         PathRow r = v.row;
         switch (node.kind) {
-            case XHTML, BUTTON -> sourcePane.showFile(v.project, r.definedIn, r.line);
+            case XHTML, BUTTON -> sourcePane.showFile(v.roots, r.definedIn, r.line);
             case BEAN -> showBeanSource(v);
             case SERVICE -> showServiceSource(v, node.hopIndex);
             case DAO -> showDaoSource(v);
             case SQL, TABLE, CRUD -> {
                 if (r.sqlSource != null && !r.sqlSource.isBlank()) {
-                    sourcePane.showFile(v.project, r.sqlSource, SourcePane.parseLineFromSource(r.sqlSource));
+                    sourcePane.showFile(v.roots, r.sqlSource, SourcePane.parseLineFromSource(r.sqlSource));
                 } else {
                     showDaoSource(v);
                 }
             }
             case GROUP, ROOT -> {
                 if (node.sourceHint != null) showByHint(v, node.sourceHint, node.hopIndex);
-                else sourcePane.showFile(v.project, r.definedIn, r.line);
+                else sourcePane.showFile(v.roots, r.definedIn, r.line);
             }
         }
     }
@@ -415,25 +423,25 @@ final class AnalyzerFrame extends JFrame {
             case "sql" -> {
                 PathRow r = v.row;
                 if (r.sqlSource != null && !r.sqlSource.isBlank()) {
-                    sourcePane.showFile(v.project, r.sqlSource, SourcePane.parseLineFromSource(r.sqlSource));
+                    sourcePane.showFile(v.roots, r.sqlSource, SourcePane.parseLineFromSource(r.sqlSource));
                 } else {
-                    sourcePane.showFile(v.project, r.definedIn, r.line);
+                    sourcePane.showFile(v.roots, r.definedIn, r.line);
                 }
             }
             case "service" -> showServiceSource(v, hopIndex);
             case "dao" -> showDaoSource(v);
             case "bean" -> showBeanSource(v);
-            default -> sourcePane.showFile(v.project, v.row.definedIn, v.row.line);
+            default -> sourcePane.showFile(v.roots, v.row.definedIn, v.row.line);
         }
     }
 
     private void showBeanSource(PathRowView v) {
         PathRow r = v.row;
         if ((r.beanFile != null && !r.beanFile.isBlank())
-                || SourceLocator.findJavaFile(v.project, SourceLocator.simpleClass(r.beanMethod)) != null) {
-            SourceLocator.showJava(sourcePane, v.project, r.beanMethod, r.beanFile, r.beanLine);
+                || SourceLocator.findJavaFile(v.roots, SourceLocator.simpleClass(r.beanMethod)) != null) {
+            SourceLocator.showJava(sourcePane, v.roots, r.beanMethod, r.beanFile, r.beanLine);
         } else {
-            sourcePane.showFile(v.project, r.definedIn, r.line);
+            sourcePane.showFile(v.roots, r.definedIn, r.line);
         }
     }
 
@@ -452,52 +460,101 @@ final class AnalyzerFrame extends JFrame {
             if (r.serviceFiles != null && i < r.serviceFiles.size()) file = r.serviceFiles.get(i);
             if (r.serviceLines != null && i < r.serviceLines.size()) line = r.serviceLines.get(i);
         }
-        SourceLocator.showJava(sourcePane, v.project, label, file, line);
+        SourceLocator.showJava(sourcePane, v.roots, label, file, line);
     }
 
     private void showDaoSource(PathRowView v) {
         PathRow r = v.row;
         if (r.mapperFile != null && !r.mapperFile.isBlank()) {
-            SourceLocator.showJava(sourcePane, v.project, r.mapperMethod, r.mapperFile, r.mapperLine);
+            SourceLocator.showJava(sourcePane, v.roots, r.mapperMethod, r.mapperFile, r.mapperLine);
             return;
         }
         if (r.sqlSource != null && !r.sqlSource.isBlank()) {
-            sourcePane.showFile(v.project, r.sqlSource, SourcePane.parseLineFromSource(r.sqlSource));
+            sourcePane.showFile(v.roots, r.sqlSource, SourcePane.parseLineFromSource(r.sqlSource));
             return;
         }
-        SourceLocator.showJava(sourcePane, v.project, r.mapperMethod, "", 0);
+        SourceLocator.showJava(sourcePane, v.roots, r.mapperMethod, "", 0);
     }
 
     private void addProject() {
         JFileChooser fc = new JFileChooser();
         fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-        fc.setDialogTitle("解析対象プロジェクトを選択");
-        if (!projectModel.isEmpty()) fc.setCurrentDirectory(projectModel.get(0).toFile());
+        fc.setDialogTitle("解析対象プロジェクト（主フォルダ）を選択");
+        if (!projectModel.isEmpty()) fc.setCurrentDirectory(projectModel.get(0).primary.toFile());
         if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
         Path p = fc.getSelectedFile().toPath().toAbsolutePath().normalize();
         for (int i = 0; i < projectModel.size(); i++) {
-            if (projectModel.get(i).equals(p)) {
+            if (projectModel.get(i).primary.equals(p)) {
                 projectList.setSelectedIndex(i);
                 return;
             }
         }
-        projectModel.addElement(p);
+        RegisteredProject rp = new RegisteredProject(p);
+        projectModel.addElement(rp);
         persistProjects();
-        projectList.setSelectedValue(p, true);
+        projectList.setSelectedValue(rp, true);
+    }
+
+    /** 選択中プロジェクトに DAO/SQL など別フォルダを紐づける */
+    private void addRelatedFolder() {
+        RegisteredProject sel = projectList.getSelectedValue();
+        if (sel == null) {
+            JOptionPane.showMessageDialog(this, "先にプロジェクトを選択してください", "確認", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        JFileChooser fc = new JFileChooser();
+        fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        fc.setDialogTitle("関連フォルダ（DAO / SQL など）を選択 — " + sel.displayName());
+        fc.setCurrentDirectory(sel.primary.toFile());
+        if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        Path extra = fc.getSelectedFile().toPath().toAbsolutePath().normalize();
+        if (extra.equals(sel.primary)) {
+            JOptionPane.showMessageDialog(this, "主フォルダと同じパスは追加できません", "確認", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        RegisteredProject updated = sel.withExtra(extra);
+        int idx = projectList.getSelectedIndex();
+        projectModel.set(idx, updated);
+        persistProjects();
+        projectList.setSelectedIndex(idx);
+        status.setText("関連フォルダを追加: " + updated.displayName());
+        loadXhtmlForSelection();
     }
 
     private void removeProjects() {
-        List<Path> sel = projectList.getSelectedValuesList();
+        List<RegisteredProject> sel = projectList.getSelectedValuesList();
         if (sel.isEmpty()) return;
-        for (Path p : sel) projectModel.removeElement(p);
+        // 関連フォルダだけある場合は関連を外すダイアログ
+        if (sel.size() == 1 && !sel.get(0).extras.isEmpty()) {
+            RegisteredProject rp = sel.get(0);
+            String[] opts = new String[rp.extras.size() + 1];
+            opts[0] = "プロジェクト全体を削除";
+            for (int i = 0; i < rp.extras.size(); i++) {
+                Path e = rp.extras.get(i);
+                opts[i + 1] = "関連を外す: " + (e.getFileName() != null ? e.getFileName() : e);
+            }
+            Object choice = JOptionPane.showInputDialog(this, "削除対象を選んでください", "削除",
+                    JOptionPane.QUESTION_MESSAGE, null, opts, opts[0]);
+            if (choice == null) return;
+            if (choice.equals(opts[0])) {
+                projectModel.removeElement(rp);
+            } else {
+                int ei = -1;
+                for (int i = 1; i < opts.length; i++) if (choice.equals(opts[i])) { ei = i - 1; break; }
+                if (ei >= 0) {
+                    int idx = projectList.getSelectedIndex();
+                    projectModel.set(idx, rp.withoutExtra(rp.extras.get(ei)));
+                }
+            }
+        } else {
+            for (RegisteredProject p : sel) projectModel.removeElement(p);
+        }
         persistProjects();
         xhtmlModel.clear();
     }
 
     private void persistProjects() {
-        List<Path> all = new ArrayList<>();
-        for (int i = 0; i < projectModel.size(); i++) all.add(projectModel.get(i));
-        store.save(all);
+        store.save(allProjects());
     }
 
     private void browseOutDir() {
@@ -511,7 +568,7 @@ final class AnalyzerFrame extends JFrame {
 
     private void loadXhtmlForSelection() {
         xhtmlModel.clear();
-        List<Path> sel = projectList.getSelectedValuesList();
+        List<RegisteredProject> sel = projectList.getSelectedValuesList();
         if (sel.isEmpty()) return;
         status.setText("xhtml 一覧を読込中…");
         analyzeBtn.setEnabled(false);
@@ -519,13 +576,13 @@ final class AnalyzerFrame extends JFrame {
             @Override
             protected List<XhtmlItem> doInBackground() throws Exception {
                 List<XhtmlItem> items = new ArrayList<>();
-                for (Path project : sel) {
+                for (RegisteredProject project : sel) {
                     try {
-                        for (Facelet f : Analyzer.listScreens(project)) {
-                            items.add(new XhtmlItem(project, f));
+                        for (Facelet f : Analyzer.listScreens(project.primary, project.extras)) {
+                            items.add(new XhtmlItem(project.primary, f));
                         }
                     } catch (Exception ex) {
-                        items.add(new XhtmlItem(project, null, "読込失敗: " + ex.getMessage()));
+                        items.add(new XhtmlItem(project.primary, null, "読込失敗: " + ex.getMessage()));
                     }
                 }
                 items.sort(Comparator.comparing(XhtmlItem::toString));
@@ -572,10 +629,8 @@ final class AnalyzerFrame extends JFrame {
     }
 
     private void runAnalysis() {
-        List<Path> projects = projectList.getSelectedValuesList();
-        if (projects.isEmpty()) {
-            for (int i = 0; i < projectModel.size(); i++) projects.add(projectModel.get(i));
-        }
+        List<RegisteredProject> projects = projectList.getSelectedValuesList();
+        if (projects.isEmpty()) projects = allProjects();
         if (projects.isEmpty()) {
             JOptionPane.showMessageDialog(this, "プロジェクトを追加してください", "確認", JOptionPane.WARNING_MESSAGE);
             return;
@@ -597,19 +652,20 @@ final class AnalyzerFrame extends JFrame {
         boolean merge = mergeResults.isSelected();
         analyzeBtn.setEnabled(false);
         status.setText("解析中…");
-        List<Path> targets = new ArrayList<>(projects);
+        List<RegisteredProject> targets = new ArrayList<>(projects);
         Set<String> xhtmlFilters = filters;
 
         new SwingWorker<List<PathRowView>, String>() {
             @Override
             protected List<PathRowView> doInBackground() throws Exception {
                 List<PathRowView> views = new ArrayList<>();
-                for (Path project : targets) {
-                    publish("解析中: " + project);
+                for (RegisteredProject project : targets) {
+                    publish("解析中: " + project.displayName());
                     Analyzer.Options opt = new Analyzer.Options();
-                    opt.project = project;
-                    opt.out = targets.size() == 1 ? out : out.resolve(safeName(project));
-                    opt.xhtmlFilters.addAll(filterForProject(project, xhtmlFilters));
+                    opt.project = project.primary;
+                    opt.extraRoots.addAll(project.extras);
+                    opt.out = targets.size() == 1 ? out : out.resolve(safeName(project.primary));
+                    opt.xhtmlFilters.addAll(filterForProject(project.primary, xhtmlFilters));
                     opt.writeFiles = true;
                     opt.merge = merge;
                     Analyzer.Result r = Analyzer.run(opt, this::publish);
@@ -629,7 +685,7 @@ final class AnalyzerFrame extends JFrame {
                 try {
                     List<PathRowView> views = get();
                     Set<Path> touched = new HashSet<>();
-                    for (Path p : targets) touched.add(p.toAbsolutePath().normalize());
+                    for (RegisteredProject p : targets) touched.add(p.primary.toAbsolutePath().normalize());
                     List<PathRowView> kept = new ArrayList<>();
                     for (PathRowView v : pathsModel.snapshot()) {
                         if (!touched.contains(v.project.toAbsolutePath().normalize())) kept.add(v);

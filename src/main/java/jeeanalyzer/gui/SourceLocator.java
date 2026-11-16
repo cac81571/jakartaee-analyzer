@@ -1,6 +1,7 @@
 package jeeanalyzer.gui;
 
 import java.nio.file.*;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -36,22 +37,29 @@ final class SourceLocator {
         return m.trim();
     }
 
-    /** プロジェクト配下から SimpleName.java を探す */
     static Path findJavaFile(Path project, String simpleClassName) {
-        if (project == null || simpleClassName == null || simpleClassName.isBlank()) return null;
+        return findJavaFile(project == null ? List.of() : List.of(project), simpleClassName);
+    }
+
+    /** 各ルート配下から SimpleName.java を探す */
+    static Path findJavaFile(List<Path> roots, String simpleClassName) {
+        if (roots == null || roots.isEmpty() || simpleClassName == null || simpleClassName.isBlank()) return null;
         String target = simpleClassName + ".java";
-        try (Stream<Path> s = Files.walk(project)) {
-            return s.filter(Files::isRegularFile)
-                    .filter(p -> target.equalsIgnoreCase(p.getFileName().toString()))
-                    .filter(p -> {
-                        String rel = project.relativize(p).toString().replace('\\', '/');
-                        return !rel.contains("/target/") && !rel.contains("/build/");
-                    })
-                    .findFirst()
-                    .orElse(null);
-        } catch (Exception e) {
-            return null;
+        for (Path project : roots) {
+            if (project == null || !Files.isDirectory(project)) continue;
+            try (Stream<Path> s = Files.walk(project)) {
+                Path found = s.filter(Files::isRegularFile)
+                        .filter(p -> target.equalsIgnoreCase(p.getFileName().toString()))
+                        .filter(p -> {
+                            String rel = project.relativize(p).toString().replace('\\', '/');
+                            return !rel.contains("/target/") && !rel.contains("/build/");
+                        })
+                        .findFirst()
+                        .orElse(null);
+                if (found != null) return found;
+            } catch (Exception ignore) { }
         }
+        return null;
     }
 
     /**
@@ -73,7 +81,6 @@ final class SourceLocator {
                 String before = text.substring(lineStart, start);
                 String trimmed = before.trim();
                 if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
-                // 定義らしい行: 修飾子・戻り値・アノテーション続き
                 if (looksLikeDeclaration(before, method)) {
                     return Util.lineOf(text, start);
                 }
@@ -87,9 +94,8 @@ final class SourceLocator {
 
     private static boolean looksLikeDeclaration(String beforeOnLine, String method) {
         String s = beforeOnLine.trim();
-        if (s.endsWith(".")) return false; // obj.
+        if (s.endsWith(".")) return false;
         if (s.contains("=") && !s.contains("->")) return false;
-        // new Foo( のコンストラクタ呼び出しはメソッド名がクラス名のときのみ問題 → 呼び出し側は . 付きで除外済み
         if (s.startsWith("new ")) return false;
         if (s.startsWith("return ") || s.startsWith("throw ") || s.startsWith("if ")
                 || s.startsWith("while ") || s.startsWith("for ") || s.startsWith("switch ")) return false;
@@ -97,38 +103,55 @@ final class SourceLocator {
     }
 
     static Path resolveJava(Path project, String classHashMethod, String fileHint) {
-        if (fileHint != null && !fileHint.isBlank() && project != null) {
-            Path p = project.resolve(fileHint.replace('\\', '/')).normalize();
-            if (Files.isRegularFile(p)) return p;
-            String name = project.getFileName() != null ? project.getFileName().toString() : "";
+        return resolveJava(project == null ? List.of() : List.of(project), classHashMethod, fileHint);
+    }
+
+    static Path resolveJava(List<Path> roots, String classHashMethod, String fileHint) {
+        if (fileHint != null && !fileHint.isBlank() && roots != null) {
             String s = fileHint.replace('\\', '/');
-            if (s.startsWith(name + "/")) {
-                p = project.resolve(s.substring(name.length() + 1)).normalize();
+            for (Path project : roots) {
+                if (project == null) continue;
+                Path p = project.resolve(s).normalize();
                 if (Files.isRegularFile(p)) return p;
+                String name = project.getFileName() != null ? project.getFileName().toString() : "";
+                if (!name.isEmpty() && s.startsWith(name + "/")) {
+                    p = project.resolve(s.substring(name.length() + 1)).normalize();
+                    if (Files.isRegularFile(p)) return p;
+                }
             }
+            Path abs = Path.of(s);
+            if (abs.isAbsolute() && Files.isRegularFile(abs)) return abs;
         }
-        return findJavaFile(project, simpleClass(classHashMethod));
+        return findJavaFile(roots, simpleClass(classHashMethod));
     }
 
     static void showJava(SourcePane pane, Path project, String classHashMethod, String fileHint, int lineHint) {
-        Path java = resolveJava(project, classHashMethod, fileHint);
+        showJava(pane, project == null ? List.of() : List.of(project), classHashMethod, fileHint, lineHint);
+    }
+
+    static void showJava(SourcePane pane, List<Path> roots, String classHashMethod, String fileHint, int lineHint) {
+        Path java = resolveJava(roots, classHashMethod, fileHint);
         if (java == null || !Files.isRegularFile(java)) {
             pane.clear();
             return;
         }
-        String rel;
-        try {
-            rel = project != null && java.startsWith(project)
-                    ? project.relativize(java).toString().replace('\\', '/')
-                    : java.toString();
-        } catch (Exception e) {
-            rel = java.toString();
+        String rel = java.toAbsolutePath().normalize().toString().replace('\\', '/');
+        if (roots != null) {
+            for (Path project : roots) {
+                if (project == null) continue;
+                try {
+                    Path base = project.toAbsolutePath().normalize();
+                    if (java.startsWith(base)) {
+                        rel = base.relativize(java).toString().replace('\\', '/');
+                        break;
+                    }
+                } catch (Exception ignore) { }
+            }
         }
         String method = methodName(classHashMethod);
         int line = lineHint;
         int found = findMethodLine(java, method);
-        // 解析行が無い／ズレている場合はソースから再特定を優先
         if (found > 0) line = found;
-        pane.showFile(project, rel, line);
+        pane.showFile(roots, rel, line);
     }
 }

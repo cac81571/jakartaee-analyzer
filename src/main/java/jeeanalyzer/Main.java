@@ -57,6 +57,7 @@ public final class Main {
                 }
                 case "--merge" -> opt.merge = true;
                 case "--replace" -> opt.merge = false;
+                case "--extra" -> opt.extraRoots.add(Paths.get(args[++i]).toAbsolutePath().normalize());
                 case "-g", "--gui" -> { jeeanalyzer.gui.GuiApp.launch(); return; }
                 case "-h", "--help" -> { usage(); return; }
                 default -> opt.project = Paths.get(args[i]);
@@ -74,6 +75,7 @@ public final class Main {
                   -o, --out <dir>        出力先ディレクトリ（既定: ./analysis-output）
                   -e, --encoding <cs>    ソースの文字コード（既定: UTF-8。読めない場合は Windows-31J を自動試行）
                   -w, --web-root <dir>   Web ルート（xhtml の / 起点）。複数指定可。既定は WEB-INF の親を自動検出
+                  --extra <dir>          関連フォルダ（DAO / Mapper XML が別ディレクトリのとき。複数指定可）
                   -x, --xhtml <list>     解析する画面 xhtml（webPath または相対パス。カンマ区切り）
                   --merge                既存の paths.csv 等とマージ（部分解析時の既定）
                   --replace              既存結果を捨てて今回分だけ出力

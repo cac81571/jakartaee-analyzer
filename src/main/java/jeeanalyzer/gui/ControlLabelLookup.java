@@ -2,6 +2,7 @@ package jeeanalyzer.gui;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -25,7 +26,7 @@ final class ControlLabelLookup {
         if (tag == null || tag.isBlank()) return tag;
         if (tag.contains("「") && tag.contains("」")) return tag;
         if (!looksLikeControl(tag)) return tag;
-        String label = lookup(v.project, v.row);
+        String label = lookup(v.roots, v.row);
         if (label == null || label.isBlank()) return tag;
         return tag + "「" + label + "」";
     }
@@ -36,14 +37,14 @@ final class ControlLabelLookup {
                 || t.contains("@action") || t.contains("actionlistener") || t.contains("@listener");
     }
 
-    static String lookup(Path project, PathRow row) {
-        if (project == null || row == null || row.definedIn == null || row.definedIn.isBlank()) return null;
-        String key = project.toAbsolutePath().normalize() + "|" + row.definedIn + "|" + row.line + "|" + nullToEmpty(row.el);
-        return CACHE.computeIfAbsent(key, k -> lookupUncached(project, row));
+    static String lookup(List<Path> roots, PathRow row) {
+        if (roots == null || roots.isEmpty() || row == null || row.definedIn == null || row.definedIn.isBlank()) return null;
+        String key = roots.get(0).toAbsolutePath().normalize() + "|" + row.definedIn + "|" + row.line + "|" + nullToEmpty(row.el);
+        return CACHE.computeIfAbsent(key, k -> lookupUncached(roots, row));
     }
 
-    private static String lookupUncached(Path project, PathRow row) {
-        Path file = resolve(project, row.definedIn);
+    private static String lookupUncached(List<Path> roots, PathRow row) {
+        Path file = resolve(roots, row.definedIn);
         if (file == null || !Files.isRegularFile(file)) return "";
         try {
             String text = Util.read(file);
@@ -102,17 +103,19 @@ final class ControlLabelLookup {
         return s.toLowerCase().indexOf(needle.toLowerCase());
     }
 
-    private static Path resolve(Path project, String rel) {
+    private static Path resolve(List<Path> roots, String rel) {
         String s = rel.replace('\\', '/');
-        Path p = project.resolve(s).normalize();
-        if (Files.isRegularFile(p)) return p;
-        String name = project.getFileName() != null ? project.getFileName().toString() : "";
-        if (s.startsWith(name + "/")) {
-            p = project.resolve(s.substring(name.length() + 1)).normalize();
+        for (Path project : roots) {
+            if (project == null) continue;
+            Path p = project.resolve(s).normalize();
             if (Files.isRegularFile(p)) return p;
+            String name = project.getFileName() != null ? project.getFileName().toString() : "";
+            if (!name.isEmpty() && s.startsWith(name + "/")) {
+                p = project.resolve(s.substring(name.length() + 1)).normalize();
+                if (Files.isRegularFile(p)) return p;
+            }
         }
-        // sample-app/src/... をプロジェクト外相対で試す
-        p = Path.of(s);
+        Path p = Path.of(s);
         if (!p.isAbsolute()) p = Path.of(".").toAbsolutePath().resolve(s).normalize();
         return Files.isRegularFile(p) ? p : null;
     }

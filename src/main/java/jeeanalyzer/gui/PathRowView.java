@@ -1,18 +1,25 @@
 package jeeanalyzer.gui;
 
 import java.nio.file.Path;
+import java.util.List;
 
 import jeeanalyzer.Model.PathRow;
 
 /** テーブル表示用（プロジェクト情報付き） */
 final class PathRowView {
     final Path project;
+    final List<Path> roots;
     final String projectName;
     final PathRow row;
 
     PathRowView(Path project, PathRow row) {
-        this.project = project;
-        this.projectName = project.getFileName() != null ? project.getFileName().toString() : project.toString();
+        this(new RegisteredProject(project), row);
+    }
+
+    PathRowView(RegisteredProject registered, PathRow row) {
+        this.project = registered.primary;
+        this.roots = registered.allRoots();
+        this.projectName = registered.displayName();
         this.row = row;
     }
 

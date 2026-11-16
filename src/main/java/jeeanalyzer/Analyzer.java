@@ -16,6 +16,11 @@ public final class Analyzer {
     /** 解析オプション */
     public static final class Options {
         public Path project;
+        /**
+         * 同一論理プロジェクトの追加ルート（DAO / Mapper XML が別フォルダのとき）。
+         * Java・XML もここから取り込み、相対パス解決にも使う。
+         */
+        public List<Path> extraRoots = new ArrayList<>();
         public Path out = Paths.get("analysis-output");
         public Charset encoding = Util.preferred;
         public List<Path> webRoots = new ArrayList<>();
@@ -54,9 +59,12 @@ public final class Analyzer {
         if (opt.project == null) throw new IllegalArgumentException("project が未指定です");
         Path root = opt.project.toAbsolutePath().normalize();
         if (!Files.isDirectory(root)) throw new IllegalArgumentException("ディレクトリが存在しません: " + root);
+        List<Path> roots = collectRoots(root, opt.extraRoots);
         Path out = opt.out.toAbsolutePath().normalize();
         Charset prev = Util.preferred;
+        List<Path> prevRoots = Util.searchRoots;
         Util.preferred = opt.encoding != null ? opt.encoding : prev;
+        Util.searchRoots = roots;
         Main.root = root;
 
         Result r = new Result();
@@ -64,10 +72,19 @@ public final class Analyzer {
         r.out = out;
         try {
             log.accept("解析対象: " + root);
-            List<Path> javaFiles = Util.listFiles(root, ".java").stream()
-                    .filter(p -> !Util.rel(root, p).contains("src/test/")).toList();
-            List<Path> xmlFiles = Util.listFiles(root, ".xml");
-            List<Path> xhtmlFiles = Util.listFiles(root, ".xhtml");
+            if (roots.size() > 1) {
+                for (int i = 1; i < roots.size(); i++) log.accept("  関連: " + roots.get(i));
+            }
+            List<Path> javaFiles = new ArrayList<>();
+            List<Path> xmlFiles = new ArrayList<>();
+            List<Path> xhtmlFiles = new ArrayList<>();
+            for (Path base : roots) {
+                for (Path p : Util.listFiles(base, ".java")) {
+                    if (!Util.rel(root, p).contains("src/test/")) javaFiles.add(p);
+                }
+                xmlFiles.addAll(Util.listFiles(base, ".xml"));
+                xhtmlFiles.addAll(Util.listFiles(base, ".xhtml"));
+            }
             r.javaCount = javaFiles.size();
             r.xmlCount = xmlFiles.size();
             r.xhtmlCount = xhtmlFiles.size();
@@ -158,28 +175,54 @@ public final class Analyzer {
             return r;
         } finally {
             Util.preferred = prev;
+            Util.searchRoots = prevRoots;
         }
     }
 
     /** プロジェクト内の画面候補（テンプレート等を除く）を列挙 */
     public static List<Facelet> listScreens(Path project) throws Exception {
+        return listScreens(project, List.of());
+    }
+
+    public static List<Facelet> listScreens(Path project, List<Path> extraRoots) throws Exception {
         Path root = project.toAbsolutePath().normalize();
+        List<Path> roots = collectRoots(root, extraRoots);
+        List<Path> prevRoots = Util.searchRoots;
+        Util.searchRoots = roots;
         Main.root = root;
-        List<Path> xhtmlFiles = Util.listFiles(root, ".xhtml");
-        List<Path> webRoots = Main.detectWebRoots(root, xhtmlFiles);
-        FaceletsScanner scanner = new FaceletsScanner();
-        List<Facelet> facelets = new ArrayList<>();
-        for (Path p : xhtmlFiles) facelets.add(scanner.scan(root, p));
-        FaceletsScanner.linkRefs(facelets, webRoots, root, new ArrayList<>());
-        List<Facelet> screens = new ArrayList<>();
-        for (Facelet f : facelets) {
-            if (f.webPath == null) continue;
-            if (f.referenced || f.webPath.startsWith("/WEB-INF/") || f.webPath.startsWith("/resources/")
-                    || f.webPath.startsWith("/META-INF/")) continue;
-            screens.add(f);
+        try {
+            List<Path> xhtmlFiles = new ArrayList<>();
+            for (Path base : roots) xhtmlFiles.addAll(Util.listFiles(base, ".xhtml"));
+            List<Path> webRoots = Main.detectWebRoots(root, xhtmlFiles);
+            FaceletsScanner scanner = new FaceletsScanner();
+            List<Facelet> facelets = new ArrayList<>();
+            for (Path p : xhtmlFiles) facelets.add(scanner.scan(root, p));
+            FaceletsScanner.linkRefs(facelets, webRoots, root, new ArrayList<>());
+            List<Facelet> screens = new ArrayList<>();
+            for (Facelet f : facelets) {
+                if (f.webPath == null) continue;
+                if (f.referenced || f.webPath.startsWith("/WEB-INF/") || f.webPath.startsWith("/resources/")
+                        || f.webPath.startsWith("/META-INF/")) continue;
+                screens.add(f);
+            }
+            screens.sort(Comparator.comparing(f -> f.webPath));
+            return screens;
+        } finally {
+            Util.searchRoots = prevRoots;
         }
-        screens.sort(Comparator.comparing(f -> f.webPath));
-        return screens;
+    }
+
+    private static List<Path> collectRoots(Path primary, List<Path> extras) {
+        LinkedHashSet<Path> set = new LinkedHashSet<>();
+        set.add(primary.toAbsolutePath().normalize());
+        if (extras != null) {
+            for (Path e : extras) {
+                if (e == null) continue;
+                Path n = e.toAbsolutePath().normalize();
+                if (Files.isDirectory(n)) set.add(n);
+            }
+        }
+        return new ArrayList<>(set);
     }
 
     private static Set<String> normalizeFilters(Set<String> raw) {

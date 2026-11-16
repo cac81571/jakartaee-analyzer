@@ -3,6 +3,7 @@ package jeeanalyzer.gui;
 import java.awt.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 import javax.swing.*;
 
@@ -55,12 +56,16 @@ final class SourcePane extends JPanel {
     }
 
     void showFile(Path project, String relativeOrSource, int line) {
+        showFile(project == null ? List.of() : List.of(project), relativeOrSource, line);
+    }
+
+    void showFile(List<Path> roots, String relativeOrSource, int line) {
         if (relativeOrSource == null || relativeOrSource.isBlank()) {
             clear();
             title.setText("ソースパスなし");
             return;
         }
-        Path resolved = resolve(project, relativeOrSource);
+        Path resolved = resolve(roots, relativeOrSource);
         if (resolved == null || !Files.isRegularFile(resolved)) {
             title.setText("見つかりません: " + relativeOrSource);
             clearLineHighlight();
@@ -124,7 +129,7 @@ final class SourcePane extends JPanel {
         return SyntaxConstants.SYNTAX_STYLE_NONE;
     }
 
-    private Path resolve(Path project, String loc) {
+    private Path resolve(List<Path> roots, String loc) {
         String s = loc.trim();
         int colon = s.lastIndexOf(':');
         if (colon > 1) {
@@ -136,13 +141,16 @@ final class SourcePane extends JPanel {
         s = s.replace('\\', '/');
         Path abs = PathsSafe(s);
         if (abs != null && Files.isRegularFile(abs)) return abs;
-        if (project != null) {
-            Path p = project.resolve(s).normalize();
-            if (Files.isRegularFile(p)) return p;
-            String name = project.getFileName() != null ? project.getFileName().toString() : "";
-            if (s.startsWith(name + "/")) {
-                p = project.resolve(s.substring(name.length() + 1)).normalize();
+        if (roots != null) {
+            for (Path project : roots) {
+                if (project == null) continue;
+                Path p = project.resolve(s).normalize();
                 if (Files.isRegularFile(p)) return p;
+                String name = project.getFileName() != null ? project.getFileName().toString() : "";
+                if (!name.isEmpty() && s.startsWith(name + "/")) {
+                    p = project.resolve(s.substring(name.length() + 1)).normalize();
+                    if (Files.isRegularFile(p)) return p;
+                }
             }
         }
         return abs;

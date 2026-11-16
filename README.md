@@ -36,12 +36,13 @@ run.bat C:\work\your-project out           # Windows
 ### GUI でできること
 
 - 解析対象プロジェクトを複数登録（一覧は `~/.jakartaee-analyzer/projects.txt` に保存）
+- **関連フォルダ**: DAO / Mapper XML が別ディレクトリのとき、「関連フォルダ…」で主フォルダに紐づけてまとめて解析（CLI は `--extra`）
 - 解析する xhtml を複数選択（「全画面を解析」のチェックを外す）
 - 呼び出しパスのツリー表示（タブ切替）
   - **XHTMLから全て**: XHTML → ボタン → Beanメソッド → Serviceメソッド → DAO → SQL → テーブル
   - **テーブルから全て**: テーブル → SQL → DAO → Service → Bean → ボタン → XHTML
-  - **XHTMLとテーブル**: XHTML → テーブル（CRUD 文字）
-  - **テーブルとXHTML**: テーブル → CRUD → XHTML
+  - **XHTMLとテーブル**: XHTML → ボタン → SQL（テーブル名）
+  - **テーブルとXHTML**: テーブル → SQL（テーブル名） → XHTML　ボタン名
 - 検索は xhtml / button / bean / service / dao / sql/table をチェックして対象列を指定
 - パネル幅の目安は プロジェクト : パス : ソース = 1 : 2 : 3。プロジェクトパネルは表示切替可
 - ノード選択で定義 xhtml・Bean・SQL 定義元を表示
@@ -53,6 +54,7 @@ run.bat C:\work\your-project out           # Windows
 | `-o, --out <dir>` | 出力先（既定: `./analysis-output`） |
 | `-e, --encoding <cs>` | ソースの文字コード（既定 UTF-8。読めないファイルは Windows-31J で自動再試行） |
 | `-w, --web-root <dir>` | Web ルート（`/WEB-INF/...` のような `/` 始まりのパスの起点）。既定は `WEB-INF` の親ディレクトリや `src/main/webapp` を自動検出。複数指定可 |
+| `--extra <dir>` | 関連フォルダ（DAO / Mapper XML が別ディレクトリのとき。複数指定可） |
 | `-x, --xhtml <list>` | 解析する画面のみ（webPath または相対パス。カンマ区切り） |
 | `--merge` | 既存の `paths.csv` 等と画面単位でマージ（`-x` 指定時の既定） |
 | `--replace` | 既存結果を破棄して今回分だけ出力（全画面解析時の既定） |
@@ -60,7 +62,7 @@ run.bat C:\work\your-project out           # Windows
 
 部分解析（`-x` または GUI で xhtml を絞る）では、未指定画面の結果を残して今回分だけ差し替えます。全画面解析は既定で置き換えです。
 
-マルチモジュール構成の場合は、親ディレクトリを指定すると全モジュールをまとめて解析します（Bean 名が重複する場合はモジュール単位での実行を推奨）。
+マルチモジュール構成の場合は、親ディレクトリを指定するか、主フォルダ＋`--extra`（GUI の「関連フォルダ…」）で DAO/SQL 側だけを追加できます（Bean 名が重複する場合はモジュール単位での実行を推奨）。
 
 ### ソースからビルドする場合
 
